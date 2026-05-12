@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/touch-tracker/static/css/main.ef1eebfa.css",
+    "main.js": "/touch-tracker/static/js/main.fdd71334.js",
+    "index.html": "/touch-tracker/index.html",
+    "main.ef1eebfa.css.map": "/touch-tracker/static/css/main.ef1eebfa.css.map",
+    "main.fdd71334.js.map": "/touch-tracker/static/js/main.fdd71334.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.ef1eebfa.css",
+    "static/js/main.fdd71334.js"
+  ]
+}
