@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/touch-tracker/static/css/main.1821b765.css",
-    "main.js": "/touch-tracker/static/js/main.6450afac.js",
+    "main.js": "/touch-tracker/static/js/main.d0ab72c5.js",
     "index.html": "/touch-tracker/index.html",
     "main.1821b765.css.map": "/touch-tracker/static/css/main.1821b765.css.map",
-    "main.6450afac.js.map": "/touch-tracker/static/js/main.6450afac.js.map"
+    "main.d0ab72c5.js.map": "/touch-tracker/static/js/main.d0ab72c5.js.map"
   },
   "entrypoints": [
     "static/css/main.1821b765.css",
-    "static/js/main.6450afac.js"
+    "static/js/main.d0ab72c5.js"
   ]
 }
