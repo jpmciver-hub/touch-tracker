@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Cloud, CloudOff, Check, Loader, AlertCircle, Settings } from 'lucide-react';
+import { Cloud, CloudOff, Check, Loader, AlertCircle } from 'lucide-react';
 import { getGitHubToken, setGitHubToken } from '../utils/storage';
 import { useApp } from '../context/AppContext';
 
 export function SyncIndicator() {
-  const { syncStatus } = useApp();
-  const [showSetup, setShowSetup] = useState(false);
+  const { syncStatus, actions } = useApp();
+  const [showPrompt, setShowPrompt] = useState(false);
   const hasToken = !!getGitHubToken();
 
   const icons = {
@@ -17,108 +17,65 @@ export function SyncIndicator() {
   };
 
   const labels = {
-    idle: hasToken ? 'Ready' : 'Not connected',
+    idle: hasToken ? 'Ready' : 'Setup',
     loading: 'Loading...',
     syncing: 'Saving...',
     synced: 'Saved',
-    error: 'Sync error',
+    error: 'Error',
+  };
+
+  const handleClick = () => {
+    if (!hasToken) {
+      setShowPrompt(true);
+    } else {
+      actions.forceLoadCloud();
+    }
   };
 
   return (
     <>
       <button
-        onClick={() => setShowSetup(true)}
+        onClick={handleClick}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
-        title="Cloud sync settings"
+        title={hasToken ? 'Click to refresh from cloud' : 'Click to set up cloud sync'}
       >
         {icons[syncStatus] || icons.idle}
         <span className="text-[10px] text-gray-400">{labels[syncStatus] || ''}</span>
       </button>
-      {showSetup && <SyncSetupModal onClose={() => setShowSetup(false)} />}
+      {showPrompt && <TokenPrompt onClose={() => setShowPrompt(false)} onSave={() => { setShowPrompt(false); actions.manualSync(); }} />}
     </>
   );
 }
 
-function SyncSetupModal({ onClose }) {
-  const { actions } = useApp();
-  const [token, setToken] = useState(getGitHubToken());
-  const [status, setStatus] = useState('');
+function TokenPrompt({ onClose, onSave }) {
+  const [token, setToken] = useState('');
 
-  const handleSave = async () => {
-    if (!token.trim()) {
-      setGitHubToken('');
-      setStatus('Disconnected');
-      return;
+  const handleSave = () => {
+    if (token.trim()) {
+      setGitHubToken(token.trim());
+      onSave();
     }
-    setStatus('Testing...');
-    try {
-      const res = await fetch('https://api.github.com/user', {
-        headers: { Authorization: `token ${token.trim()}` },
-      });
-      if (res.ok) {
-        const user = await res.json();
-        setGitHubToken(token.trim());
-        setStatus(`Connected as ${user.login}`);
-        setTimeout(() => {
-          actions.manualSync();
-          onClose();
-        }, 1000);
-      } else {
-        setStatus('Invalid token');
-      }
-    } catch {
-      setStatus('Connection failed');
-    }
-  };
-
-  const handleLoadFromCloud = async () => {
-    setStatus('Loading from cloud...');
-    await actions.forceLoadCloud();
-    setStatus('Loaded!');
-    setTimeout(onClose, 1000);
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface-800 rounded-2xl p-6 w-full max-w-md border border-white/10" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 mb-4">
-          <Settings size={20} className="text-brand-400" />
-          <h2 className="text-lg font-bold text-white">Cloud Sync</h2>
-        </div>
+      <div className="bg-surface-800 rounded-2xl p-6 w-full max-w-sm border border-white/10" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-white mb-2">Cloud Sync Setup</h2>
         <p className="text-sm text-gray-400 mb-4">
-          Save your training data to GitHub so it persists across devices and sessions. Your data is stored in a private Gist.
+          Enter a GitHub token to save your training data. One-time setup.
         </p>
-        <div className="mb-4">
-          <label className="block text-xs font-medium text-gray-300 mb-1">GitHub Personal Access Token</label>
-          <input
-            type="password"
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            placeholder="ghp_xxxxxxxxxxxx"
-            className="w-full bg-surface-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
-          />
-          <p className="text-[10px] text-gray-500 mt-1">
-            Create at github.com/settings/tokens with "gist" scope only
-          </p>
-        </div>
-        {status && (
-          <p className={`text-sm mb-3 ${status.includes('Connected') || status.includes('Loaded') ? 'text-emerald-400' : status.includes('Invalid') || status.includes('failed') ? 'text-red-400' : 'text-gray-400'}`}>
-            {status}
-          </p>
-        )}
+        <input
+          type="password"
+          value={token}
+          onChange={e => setToken(e.target.value)}
+          placeholder="ghp_xxxxxxxxxxxx"
+          className="w-full bg-surface-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500 mb-4"
+          autoFocus
+        />
         <div className="flex gap-2">
-          <button onClick={handleSave} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">
-            Save & Sync
-          </button>
-          {getGitHubToken() && (
-            <button onClick={handleLoadFromCloud} className="flex-1 bg-surface-700 hover:bg-surface-600 text-white py-2 rounded-lg text-sm font-medium transition-colors">
-              Load from Cloud
-            </button>
-          )}
+          <button onClick={handleSave} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-medium">Connect</button>
+          <button onClick={onClose} className="flex-1 bg-surface-700 hover:bg-surface-600 text-white py-2 rounded-lg text-sm font-medium">Cancel</button>
         </div>
-        <button onClick={onClose} className="w-full mt-2 text-gray-500 hover:text-gray-300 py-2 text-sm transition-colors">
-          Cancel
-        </button>
       </div>
     </div>
   );
