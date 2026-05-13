@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import { loadFromStorage, saveToStorage, getTodayKey, KEYS } from '../utils/storage';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useState, useRef } from 'react';
+import { loadFromStorage, saveToStorage, getTodayKey, KEYS, syncToCloud, loadFromCloud, getGitHubToken } from '../utils/storage';
 import { DEFAULT_ACTIVITIES, DEFAULT_GOAL } from '../utils/defaults';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -118,6 +118,29 @@ function reducer(state, action) {
 
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
+  const [syncStatus, setSyncStatus] = useState('idle');
+  const syncTimer = useRef(null);
+  const isInitialLoad = useRef(true);
+
+  // Load from cloud on startup
+  useEffect(() => {
+    if (!getGitHubToken()) { isInitialLoad.current = false; return; }
+    setSyncStatus('loading');
+    loadFromCloud().then(cloudData => {
+      if (cloudData) {
+        dispatch({ type: ACTION.HYDRATE, payload: {
+          goal: cloudData.goal,
+          activities: cloudData.activities,
+          dailyLogs: cloudData.dailyLogs,
+          streaks: cloudData.streaks,
+        }});
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('idle');
+      }
+      isInitialLoad.current = false;
+    }).catch(() => { setSyncStatus('error'); isInitialLoad.current = false; });
+  }, []);
 
   // Persist to localStorage on every change
   useEffect(() => {
@@ -127,12 +150,23 @@ export function AppProvider({ children }) {
     saveToStorage(KEYS.STREAKS, state.streaks);
   }, [state.goal, state.activities, state.dailyLogs, state.streaks]);
 
+  // Auto-sync to cloud (debounced)
+  useEffect(() => {
+    if (isInitialLoad.current || !getGitHubToken()) return;
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(async () => {
+      setSyncStatus('syncing');
+      const result = await syncToCloud(state);
+      setSyncStatus(result.ok ? 'synced' : 'error');
+    }, 2000);
+    return () => { if (syncTimer.current) clearTimeout(syncTimer.current); };
+  }, [state.goal, state.activities, state.dailyLogs, state.streaks]);
+
   // Midnight reset check — runs on an interval
   useEffect(() => {
     const checkMidnight = () => {
       const now = new Date();
       if (now.getHours() === 0 && now.getMinutes() === 0) {
-        // Force re-render by hydrating with fresh today key
         dispatch({ type: ACTION.HYDRATE, payload: {} });
       }
     };
@@ -156,6 +190,28 @@ export function AppProvider({ children }) {
     updateActivity: useCallback((activity) => dispatch({ type: ACTION.UPDATE_ACTIVITY, payload: activity }), []),
     deleteActivity: useCallback((id) => dispatch({ type: ACTION.DELETE_ACTIVITY, payload: id }), []),
     setTab: useCallback((tab) => dispatch({ type: ACTION.SET_TAB, payload: tab }), []),
+    manualSync: useCallback(async () => {
+      if (!getGitHubToken()) return;
+      setSyncStatus('syncing');
+      const result = await syncToCloud(state);
+      setSyncStatus(result.ok ? 'synced' : 'error');
+    }, [state]),
+    forceLoadCloud: useCallback(async () => {
+      if (!getGitHubToken()) return;
+      setSyncStatus('loading');
+      const cloudData = await loadFromCloud();
+      if (cloudData) {
+        dispatch({ type: ACTION.HYDRATE, payload: {
+          goal: cloudData.goal,
+          activities: cloudData.activities,
+          dailyLogs: cloudData.dailyLogs,
+          streaks: cloudData.streaks,
+        }});
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('error');
+      }
+    }, []),
   };
 
   const value = {
@@ -166,6 +222,7 @@ export function AppProvider({ children }) {
     progress,
     remaining,
     goalReached,
+    syncStatus,
     actions,
   };
 

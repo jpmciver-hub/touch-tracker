@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { LayoutDashboard, PlusCircle, History, BarChart3, Settings, Zap } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { SyncIndicator } from './CloudSync';
 
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -18,8 +19,11 @@ export default function Navigation() {
     <>
       {/* Desktop sidebar */}
       <nav className="hidden md:flex fixed left-0 top-0 bottom-0 w-20 flex-col items-center py-6 bg-surface-850/80 backdrop-blur-xl border-r border-white/5 z-40">
-        <div className="mb-8">
+        <div className="mb-4">
           <Zap size={28} className="text-brand-400" />
+        </div>
+        <div className="mb-4">
+          <SyncIndicator />
         </div>
         <div className="flex flex-col gap-2 flex-1">
           {tabs.map(tab => {
