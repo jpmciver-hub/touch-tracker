@@ -5,9 +5,36 @@ const KEYS = {
   STREAKS: 'tt_streaks',
 };
 
-const REPO = 'jpmciver-hub/touch-tracker';
-const DATA_FILE = 'data.json';
-const TOKEN_KEY = 'tt_gh_token';
+const SHEET_ID = process.env.REACT_APP_SHEET_ID;
+const CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.REACT_APP_GOOGLE_CLIENT_SECRET;
+const REFRESH_TOKEN = process.env.REACT_APP_GOOGLE_REFRESH_TOKEN;
+
+let cachedAccessToken = null;
+let tokenExpiry = 0;
+
+async function getAccessToken() {
+  if (cachedAccessToken && Date.now() < tokenExpiry) return cachedAccessToken;
+
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    refresh_token: REFRESH_TOKEN,
+    grant_type: 'refresh_token',
+  });
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  cachedAccessToken = data.access_token;
+  tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+  return cachedAccessToken;
+}
 
 export function loadFromStorage(key, fallback) {
   try {
@@ -31,14 +58,15 @@ export function getTodayKey() {
 }
 
 export function getGitHubToken() {
-  return localStorage.getItem(TOKEN_KEY) || '';
-}
-
-export function setGitHubToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  return SHEET_ID ? 'configured' : '';
 }
 
 export async function syncToCloud(state) {
+  if (!SHEET_ID) return { ok: false, error: 'No sheet configured' };
+
+  const token = await getAccessToken();
+  if (!token) return { ok: false, error: 'Auth failed' };
+
   const data = {
     goal: state.goal,
     activities: state.activities,
@@ -47,26 +75,25 @@ export async function syncToCloud(state) {
     lastSync: new Date().toISOString(),
   };
 
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
+  const encoded = JSON.stringify(data);
+  const chunks = [];
+  for (let i = 0; i < encoded.length; i += 40000) {
+    chunks.push(encoded.substring(i, i + 40000));
+  }
+
+  const values = chunks.map((chunk, i) => [`chunk_${i}`, chunk]);
+  values.unshift(['key', 'value']);
+  values.push(['_meta', JSON.stringify({ lastSync: new Date().toISOString(), chunks: chunks.length })]);
 
   try {
-    const existing = await fetch(`https://api.github.com/repos/${REPO}/contents/${DATA_FILE}?ref=main`, {
-      headers: { Authorization: `token ${getGitHubToken()}` },
-    });
-
-    const body = { message: `Sync training data ${new Date().toLocaleString()}`, content, branch: 'main' };
-
-    if (existing.ok) {
-      const file = await existing.json();
-      body.sha = file.sha;
-    }
-
-    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DATA_FILE}`, {
-      method: 'PUT',
-      headers: { Authorization: `token ${getGitHubToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/state!A1:B${values.length}?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ range: `state!A1:B${values.length}`, majorDimension: 'ROWS', values }),
+      }
+    );
     return { ok: res.ok, error: res.ok ? null : `Save failed (${res.status})` };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -74,14 +101,31 @@ export async function syncToCloud(state) {
 }
 
 export async function loadFromCloud() {
+  if (!SHEET_ID) return null;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DATA_FILE}?ref=main`, {
-      headers: { Authorization: `token ${getGitHubToken()}` },
-    });
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/state!A:B`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
     if (!res.ok) return null;
-    const file = await res.json();
-    const decoded = decodeURIComponent(escape(atob(file.content)));
-    return JSON.parse(decoded);
+
+    const data = await res.json();
+    const rows = data.values || [];
+    if (rows.length < 2) return null;
+
+    const chunkRows = rows.filter(r => r[0] && r[0].startsWith('chunk_')).sort((a, b) => {
+      const ai = parseInt(a[0].split('_')[1]);
+      const bi = parseInt(b[0].split('_')[1]);
+      return ai - bi;
+    });
+
+    if (chunkRows.length === 0) return null;
+    const fullJson = chunkRows.map(r => r[1]).join('');
+    return JSON.parse(fullJson);
   } catch {
     return null;
   }
